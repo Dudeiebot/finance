@@ -39,14 +39,100 @@ def after_request(response):
 @login_required
 def index():
     """Show portfolio of stocks"""
-    return apology("TODO")
+    conn = sqlite3.connect('finance.db')
+    cursor = conn.cursor()
+    
+    # Get user's current cash balance
+    user_id = session["user_id"]
+    cursor.execute("SELECT cash FROM users WHERE id = ?", (user_id,))
+    cash = cursor.fetchone()[0]
+    
+    # Get user's stock holdings and current prices
+    cursor.execute("SELECT stock_symbol, SUM(shares), purchase_price FROM purchases WHERE user_id = ? GROUP BY stock_symbol", (session["user_id"],))
+    rows = cursor.fetchall()
+
+    holdings = []
+    total_value = 0
+    
+    for row in rows:
+        symbol = row[0]
+        shares = row[1]
+        purchase_price = row[2]
+
+        # Look up current price of stock
+        stock = lookup(symbol)
+        current_price = stock["price"]
+        value = current_price * shares
+
+        holdings.append({
+            "symbol": symbol,
+            "shares": shares,
+            "purchase_price": purchase_price,
+            "current_price": current_price,
+            "value": value
+        })
+
+        total_value += value
+
+    grand_total = cash + total_value
+
+    return render_template("index.html", holdings=holdings, cash=cash, total_value=total_value, grand_total=grand_total)
 
 
 @app.route("/buy", methods=["GET", "POST"])
 @login_required
 def buy():
     """Buy shares of stock"""
-    return apology("TODO")
+    conn = sqlite3.connect('finance.db')
+    cursor = conn.cursor()
+    
+    if request.method == "POST":
+        symbol = request.form.get("symbol")
+        shares = request.form.get("shares")
+
+        # Retrieve stock data
+        stock = lookup(symbol)
+        if not stock:
+            return apology("Invalid symbol")
+        
+        # Ensure shares is a positive integer
+        try:
+            shares = float(shares)
+        except ValueError:
+            return apology("Shares must be a positive integer")
+        if shares < 0:
+            return apology("Shares must be a positive integer")
+
+        # Calculate total cost of purchase
+        total_cost = shares * stock['price']
+
+        # Retrieve user's cash balance
+        cursor.execute("SELECT cash FROM users WHERE id = ?", (session["user_id"],))
+        row = cursor.fetchone()
+        if not row:
+            return apology("User not found")
+        cash = row[0]
+
+        # Check if user has sufficient funds to make purchase
+        if cash < total_cost:
+            return apology("Insufficient funds")
+
+        # Update user's cash balance
+        new_cash = cash - total_cost
+        cursor.execute("UPDATE users SET cash = ? WHERE id = ?", (new_cash, session["user_id"]))
+        conn.commit()
+        
+        # Log purchase in database
+        cursor.execute("INSERT INTO purchases (user_id, stock_symbol, purchase_price, shares) VALUES (?, ?, ?, ?)", (session["user_id"], stock['symbol'], stock['price'], shares))
+        conn.commit()
+
+        conn.close()
+        
+        # Redirect user to home page
+        return redirect("/")
+    else:
+        return render_template("buy.html")
+
 
 
 @app.route("/history")
@@ -113,7 +199,15 @@ def logout():
 @login_required
 def quote():
     """Get stock quote."""
-    return apology("TODO")
+    if request.method == "GET":
+        return render_template("quote.html")
+    elif request.method == "POST":
+        symbol = request.form.get("symbol")
+        quote_data = lookup(symbol)
+        if quote_data:
+            return render_template("quoted.html", quote=quote_data)
+        else:
+            return apology("Invalid symbol or lookup failed")
 
 
 @app.route("/register", methods=["GET", "POST"])
