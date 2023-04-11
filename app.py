@@ -48,7 +48,7 @@ def index():
     cash = cursor.fetchone()[0]
     
     # Get user's stock holdings and current prices
-    cursor.execute("SELECT stock_symbol, SUM(shares), purchase_price FROM purchases WHERE user_id = ? GROUP BY stock_symbol", (session["user_id"],))
+    cursor.execute("SELECT stock_symbol, SUM(shares) AS total_shares, purchase_price FROM purchases WHERE user_id = ? GROUP BY stock_symbol HAVING SUM(shares) > 0", (session["user_id"],))
     rows = cursor.fetchall()
 
     holdings = []
@@ -61,11 +61,13 @@ def index():
 
         # Look up current price of stock
         stock = lookup(symbol)
+        company_name = stock["name"]
         current_price = stock["price"]
         value = current_price * shares
 
         holdings.append({
             "symbol": symbol,
+            "name": company_name,
             "shares": shares,
             "purchase_price": purchase_price,
             "current_price": current_price,
@@ -73,10 +75,11 @@ def index():
         })
 
         total_value += value
+    # Calculate user's total portfolio value
+    total_portfolio_value = cash + sum([stock['value'] for stock in holdings])
 
-    grand_total = cash + total_value
+    return render_template("index.html", holdings=holdings, cash=usd(cash), total=usd(float(total_portfolio_value)))
 
-    return render_template("index.html", holdings=holdings, cash=cash, total_value=total_value, grand_total=grand_total)
 
 
 @app.route("/buy", methods=["GET", "POST"])
@@ -139,7 +142,15 @@ def buy():
 @login_required
 def history():
     """Show history of transactions"""
-    return apology("TODO")
+    # Retrieve all the user's transactions from the database
+    conn = sqlite3.connect('finance.db')
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM purchases WHERE user_id = ? ORDER BY purchase_date DESC", (session["user_id"],))
+    rows = cursor.fetchall()
+    conn.close()
+
+    # Render the transactions in an HTML table
+    return render_template("history.html", rows=rows)
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -255,4 +266,55 @@ def register():
 @login_required
 def sell():
     """Sell shares of stock"""
-    return apology("TODO")
+    conn = sqlite3.connect('finance.db')
+    cursor = conn.cursor()
+
+    if request.method == "POST":
+        symbol = request.form.get("symbol")
+        shares = request.form.get("shares")
+
+        # Retrieve stock data
+        stock = lookup(symbol)
+        if not stock:
+            return apology("Invalid symbol")
+
+        # Ensure shares is a positive integer
+        try:
+            shares = float(shares)
+        except ValueError:
+            return apology("Shares must be a positive integer")
+        if shares < 0:
+            return apology("Shares must be a positive integer")
+
+        # Retrieve user's current stock holdings
+        cursor.execute("SELECT SUM(shares) FROM purchases WHERE user_id = ? AND stock_symbol = ?", (session["user_id"], stock['symbol']))
+        row = cursor.fetchone()
+        if not row or row[0] < shares:
+            return apology("Insufficient shares")
+
+        # Retrieve user's cash balance
+        cursor.execute("SELECT cash FROM users WHERE id = ?", (session["user_id"],))
+        row = cursor.fetchone()
+        if not row:
+            return apology("User not found")
+        cash = row[0]
+
+        # Calculate total value of shares to be sold
+        total_value = shares * stock['price']
+
+        # Update user's cash balance
+        new_cash = cash + total_value
+        cursor.execute("UPDATE users SET cash = ? WHERE id = ?", (new_cash, session["user_id"]))
+        conn.commit()
+
+        # Insert record in purchases table with negative number of shares and sell price
+        cursor.execute("INSERT INTO purchases (user_id, stock_symbol, purchase_price, shares) VALUES (?, ?, ?, ?)", (session["user_id"], stock['symbol'], -stock['price'], -shares))
+        conn.commit()
+
+        conn.close()
+
+        # Redirect user to home page
+        return redirect("/")
+
+    else:
+        return render_template("sell.html")
