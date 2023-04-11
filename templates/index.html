@@ -11,6 +11,7 @@
         <thead>
             <tr>
                 <th>Symbol</th>
+                <th>Name</th>
                 <th>Shares</th>
                 <th>Purchase Price</th>
                 <th>Current Price</th>
@@ -21,23 +22,20 @@
             {% for holding in holdings %}
                 <tr>
                     <td>{{ holding.symbol }}</td>
+                    <td>{{ holding.name }}</td>
                     <td>{{ holding.shares }}</td>
-                    <td>{{ holding.purchase_price }}</td>
-                    <td>{{ holding.current_price }}</td>
-                    <td>{{ holding.value }}</td>
+                    <td>{{ holding.purchase_price|usd }}</td>
+                    <td>{{ holding.current_price|usd }}</td>
+                    <td>{{ holding.value|usd }}</td>
                 </tr>
             {% endfor %}
             <tr>
-                <td colspan="4">Cash</td>
+                <td colspan="5"><b>Cash</b></td>
                 <td>{{ cash }}</td>
             </tr>
             <tr>
-                <td colspan="4">Total Value</td>
-                <td>{{ total_value }}</td>
-            </tr>
-            <tr>
-                <td colspan="4">Grand Total</td>
-                <td>{{ grand_total }}</td>
+                <td colspan="5"><b>Grand Total</b></td>
+                <td>{{ total }}</td>
             </tr>
         </tbody>
     </table>
